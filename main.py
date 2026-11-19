@@ -1,23 +1,100 @@
-"""Sum up 19 November 2026 world news in one image.
+#!/usr/bin/env python3
+"""The World in One Day -- Thursday 19 November 2026.
 
-Writes the bundled news image to /output/entry.png, byte for byte.
-No network, no randomness: two runs write identical bytes.
+A program that draws one newspaper front page summing up the day's
+world news and writes it to /output/entry.png. Pure standard library:
+no network, no third-party packages, fully deterministic, so two runs
+write identical bytes.
 """
 import os
-import shutil
+import struct
+import zlib
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+# --- 8x8 public-domain bitmap font (IBM VGA based, font8x8_basic) ---
+# Each glyph is 8 bytes written as 16 hex chars; byte r is row r and
+# bit 0 of a byte is the leftmost pixel. Keys are ASCII codes 32..126.
+FONT = {
+    32: "0000000000000000", 33: "183c3c1818001800",
+    34: "3636000000000000", 35: "36367f367f363600",
+    36: "0c3e031e301f0c00", 37: "006333180c666300",
+    38: "1c361c6e3b336e00", 39: "0606030000000000",
+    40: "180c0606060c1800", 41: "060c1818180c0600",
+    42: "00663cff3c660000", 43: "000c0c3f0c0c0000",
+    44: "00000000000c0c06", 45: "0000003f00000000",
+    46: "00000000000c0c00", 47: "6030180c06030100",
+    48: "3e63737b6f673e00", 49: "0c0e0c0c0c0c3f00",
+    50: "1e33301c06333f00", 51: "1e33301c30331e00",
+    52: "383c36337f307800", 53: "3f031f3030331e00",
+    54: "1c06031f33331e00", 55: "3f3330180c0c0c00",
+    56: "1e33331e33331e00", 57: "1e33333e30180e00",
+    58: "000c0c00000c0c00", 59: "000c0c00000c0c06",
+    60: "180c0603060c1800", 61: "00003f00003f0000",
+    62: "060c1830180c0600", 63: "1e3330180c000c00",
+    64: "3e637b7b7b031e00", 65: "0c1e33333f333300",
+    66: "3f66663e66663f00", 67: "3c66030303663c00",
+    68: "1f36666666361f00", 69: "7f46161e16467f00",
+    70: "7f46161e16060f00", 71: "3c66030373667c00",
+    72: "3333333f33333300", 73: "1e0c0c0c0c0c1e00",
+    74: "7830303033331e00", 75: "6766361e36666700",
+    76: "0f06060646667f00", 77: "63777f7f6b636300",
+    78: "63676f7b73636300", 79: "1c36636363361c00",
+    80: "3f66663e06060f00", 81: "1e3333333b1e3800",
+    82: "3f66663e36666700", 83: "1e33070e38331e00",
+    84: "3f2d0c0c0c0c1e00", 85: "3333333333333f00",
+    86: "33333333331e0c00", 87: "6363636b7f776300",
+    88: "6363361c1c366300", 89: "3333331e0c0c1e00",
+    90: "7f6331184c667f00", 91: "1e06060606061e00",
+    92: "03060c1830604000", 93: "1e18181818181e00",
+    94: "081c366300000000", 95: "00000000000000ff",
+    96: "0c0c180000000000", 97: "00001e303e336e00",
+    98: "0706063e66663b00", 99: "00001e3303331e00",
+    100: "3830303e33336e00", 101: "00001e333f031e00",
+    102: "1c36060f06060f00", 103: "00006e33333e301f",
+    104: "0706366e66666700", 105: "0c000e0c0c0c1e00",
+    106: "300030303033331e", 107: "070666361e366700",
+    108: "0e0c0c0c0c0c1e00", 109: "0000337f7f6b6300",
+    110: "00001f3333333300", 111: "00001e3333331e00",
+    112: "00003b66663e060f", 113: "00006e33333e3078",
+    114: "00003b6e66060f00", 115: "00003e031e301f00",
+    116: "080c3e0c0c2c1800", 117: "0000333333336e00",
+    118: "00003333331e0c00", 119: "0000636b7f7f3600",
+    120: "000063361c366300", 121: "00003333333e301f",
+    122: "00003f190c263f00", 123: "380c0c070c0c3800",
+    124: "1818180018181800", 125: "070c0c380c0c0700",
+    126: "6e3b000000000000",
+}
 
+# --- world land mask, 80 columns x 40 rows, equirectangular ---
+# Row r covers latitude 90-(r+0.5)*4.5; each hex digit holds 4 columns
+# and bit j of the digit is column 4*i+j (LSB first).
+MAP = [
+    "00000000000000000000", "00000008300000000000",
+    "0000e6fff08000040000", "0001008f7000018f0000",
+    "0f9c381f70070affff74", "dfffffffff7210000000",
+    "8fff781000eeffffff73", "018ff930008efffff780",
+    "000fff7008efffffff00", "000fff3008fffffff700",
+    "000fff000c536ffff900", "000ef7000c8c7fff3100",
+    "000cf7000c30ffff7200", "000c70000cffffff7000",
+    "000030000eff79ff3000", "000029000fffe17e0000",
+    "0000c1000ffff03c0000", "000000100eff30280000",
+    "000008700eff70040000", "000008f100cf30002000",
+    "00000cf300cf10047400", "00000cff008f10080810",
+    "000008ff008f10000000", "000008f7008f50000b00",
+    "000000f7008f4000cf11", "000000f1008f0000ef30",
+    "000000f100070000cf30", "000000f000030000c830",
+    "00000070000000000818", "00000030000000000014",
+    "00000810000000000000", "00000850000000000000",
+    "00000000000000000000", "00000000000000000000",
+    "00000000000000000000", "000000300008f7efff70",
+    "0004cf300efffffffff1", "0efff702fffffffffff1",
+    "0cfffffffffffffffff1", "00000000000000000000",
+]
 
-def main():
-    src = os.path.join(HERE, "news.jpg")
-    if not os.path.isfile(src):
-        raise SystemExit("news.jpg is missing next to main.py")
-    os.makedirs("/output", exist_ok=True)
-    dst = "/output/entry.png"
-    shutil.copyfile(src, dst)
-    print(f"Wrote {dst} ({os.path.getsize(dst)} bytes)")
-
-
-if __name__ == "__main__":
-    main()
+W, H = 1024, 1024
+PAPER = (247, 242, 231)
+INK = (26, 26, 26)
+RED = (168, 35, 42)
+NAVY = (22, 50, 79)
+TEAL = (15, 118, 110)
+GOLD = (176, 124, 18)
+SKY = (214, 231, 243)
