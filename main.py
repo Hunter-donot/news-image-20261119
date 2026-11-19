@@ -362,8 +362,8 @@ TOP3 = [
      "sunset"),
     (3, "NASDAQ", "MARKETS",
      "Anthropic debuts in the biggest IPO on record",
-     "The Claude maker lists on Nasdaq as ANT, the first big AI lab to "
-     "go public; shares price above range.",
+     "The Claude maker lists on Nasdaq as ANT at $83; $81.3bn raised, "
+     "the biggest IPO on record.",
      "chart"),
 ]
 
@@ -377,7 +377,7 @@ SMALL9 = [
      "Ministers take over the text; the $120bn adaptation fund is still open.",
      "sun", (176, 124, 18)),
     (6, "ODISHA", "STORM",
-     "Akvan bears down as 100,000 flee",
+     "Akvan bears down as 72,000 flee",
      "Red alerts in 11 districts as the cyclone nears landfall near Gopalpur.",
      "wave", TEAL),
     (7, "BERLIN", "DIPLOMACY",
@@ -407,30 +407,36 @@ SMALL9 = [
 ]
 
 BRIEFS = [
-    "13 CRIMEA - Bridge hit third time.",
-    "14 NUCLEAR - IAEA: North Korea expanded enrichment.",
-    "15 GAZA - Flooding swamps tent camps as rains hit.",
-    "16 HEALTH - US loses measles elimination status.",
-    "17 POLITICS - Peltola win gives Democrats 56 seats.",
-    "18 POLITICS - House forces vote on Epstein files.",
-    "19 TECH - Nvidia chief Huang exits amid probe.",
-    "20 LAW - Indonesia passes asset forfeiture law.",
-    "21 TECH - North Korea unveils first AI chatbot.",
-    "22 ECONOMY - Egypt lands $2.3B IMF deal.",
-    "23 SPORT - India reduce NZ to 60/4 on day one.",
-    "24 SPORT - England beat Australia by 97 runs.",
-    "25 SPORT - Alcaraz, Zverev reach ATP Finals semis.",
-    "26 SPORT - Chelsea top Women's Champions League.",
-    "27 SANCTIONS - EU extends Russia sanctions 3 years.",
-    "28 DIPLOMACY - Abu Dhabi peace talks end deadlocked.",
-    "29 MARKETS - LatAm rattled; Peru fuel emergency.",
-    "30 SCIENCE - Message sent through wall using gravity.",
+    "13 CRIMEA - Bridge hit again.",
+    "14 N KOREA - Enrichment up.",
+    "15 GAZA - Floods swamp camps.",
+    "16 US - Measles status lost.",
+    "17 ALASKA - Dems win 56 seats.",
+    "18 HOUSE - Epstein files vote.",
+    "19 HUANG - Nvidia chief exits.",
+    "20 JAKARTA - Asset seizure.",
+    "21 N KOREA - First AI chatbot.",
+    "22 EGYPT - $2.3B IMF deal.",
+    "23 CRICKET - NZ 60/4 vs India.",
+    "24 ENGLAND - Win by 97 runs.",
+    "25 TENNIS - Alcaraz in semis.",
+    "26 CHELSEA - Top Women's CL.",
+    "27 EU - Sanctions +3 years.",
+    "28 ABU DHABI - Talks stall.",
+    "29 LATAM - Peru fuel crisis.",
+    "30 SCIENCE - Gravity message.",
+    "31 SUNEUNG - 551,864 sit exam.",
+    "32 FLORIDA - 15.3in rain.",
+    "33 CANBERRA - Jobless 4.9%.",
+    "34 BANGLADESH - 4 killed.",
+    "35 RIYADH - Missile hits.",
+    "36 TSMC - China chip curbs.",
 ]
 
 STATS = [
-    ("EUROPE", "7", "1,000", "UK strike drones for Ukraine", (30, 90, 160)),
-    ("AMERICAS", "8", "$190.4m", "Van Gogh record sale", (20, 110, 60)),
-    ("ASIA-PACIFIC", "5", "100,000", "evacuated ahead of Akvan", RED),
+    ("EUROPE", "8", "1,000", "UK strike drones for Ukraine", (30, 90, 160)),
+    ("AMERICAS", "9", "$81.3bn", "Anthropic IPO, biggest ever", (20, 110, 60)),
+    ("ASIA-PACIFIC", "9", "72,000", "evacuated ahead of Akvan", RED),
     ("MIDEAST", "5", "730,000", "Rohingya who fled in 2017", (160, 90, 20)),
     ("AFRICA", "2", "$2.3bn", "Egypt IMF deal", (176, 124, 18)),
     ("OCEANIA", "2", "97 runs", "England's ODI win margin", TEAL),
@@ -446,7 +452,8 @@ DOTS = [
 
 DATECHECK = ("DATE CHECK - First reported Wed 18 Nov, not today's news: "
              "EU's 45bn euro Ukraine loan - Jeffries nominated - "
-             "Voyager 1 crosses one light-day - Pew: Islam largest by 2035.")
+             "Voyager 1 crosses one light-day - US-Venezuela deal signed - "
+             "Pew: Islam largest by 2035.")
 
 FOOTER = ("Every story here happened, or was first reported, on Thursday "
           "19 November 2026. Sources: Reuters, AP, AFP, BBC.")
@@ -482,7 +489,7 @@ def build():
     c.hline(24, 10, 976, RED, 3)
     t = "THE WORLD IN ONE DAY"
     c.text((W - c.text_w(2, t)) // 2, 20, 2, t, RED, bold=True)
-    r = "ONE PAGE - 30 STORIES"
+    r = "ONE PAGE - 36 STORIES"
     c.text(W - 24 - c.text_w(1, r), 22, 1, r, GREY)
     title = "Thursday 19 November 2026"
     c.text((W - c.text_w(4, title)) // 2, 42, 4, title, INK, bold=True)
@@ -532,13 +539,13 @@ def build():
     draw_map(c, 24, my + 14)
     c.text(24, my + 188, 1, "Red numbers mark stories 1-12.", GREY)
     bx = 510
-    c.text(bx, my, 1, "ALSO ON THURSDAY 19 NOVEMBER - 18 MORE STORIES", RED,
+    c.text(bx, my, 1, "ALSO ON THURSDAY 19 NOVEMBER - 24 MORE STORIES", RED,
            bold=True)
     for i, b in enumerate(BRIEFS):
-        col = i // 9
-        row = i % 9
+        col = i // 12
+        row = i % 12
         x = bx + col * 245
-        y = my + 16 + row * 22
+        y = my + 16 + row * 16
         c.para(x, y, 1, b, INK, 240, leading=10)
     # date check
     dy = 958
