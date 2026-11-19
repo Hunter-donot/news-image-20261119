@@ -98,3 +98,463 @@ NAVY = (22, 50, 79)
 TEAL = (15, 118, 110)
 GOLD = (176, 124, 18)
 SKY = (214, 231, 243)
+SAND = (232, 222, 196)
+GREY = (110, 108, 100)
+WHITE = (255, 255, 255)
+GREEN = (46, 125, 50)
+ORANGE = (214, 106, 24)
+
+
+class Canvas:
+    def __init__(self):
+        self.px = bytearray(PAPER * (W * H))
+
+    def set(self, x, y, c):
+        if 0 <= x < W and 0 <= y < H:
+            i = (y * W + x) * 3
+            self.px[i:i + 3] = bytes(c)
+
+    def rect(self, x, y, w, h, c):
+        x0 = max(0, x)
+        y0 = max(0, y)
+        x1 = min(W, x + w)
+        y1 = min(H, y + h)
+        if x1 <= x0 or y1 <= y0:
+            return
+        row = bytes(c) * (x1 - x0)
+        for yy in range(y0, y1):
+            i = (yy * W + x0) * 3
+            self.px[i:i + len(row)] = row
+
+    def hline(self, x, y, w, c, t=1):
+        self.rect(x, y, w, t, c)
+
+    def vline(self, x, y, h, c, t=1):
+        self.rect(x, y, t, h, c)
+
+    def frame(self, x, y, w, h, c, t=1):
+        self.hline(x, y, w, c, t)
+        self.hline(x, y + h - t, w, c, t)
+        self.vline(x, y, h, c, t)
+        self.vline(x + w - t, y, h, c, t)
+
+    def line(self, x0, y0, x1, y1, c, t=1):
+        dx = abs(x1 - x0)
+        dy = -abs(y1 - y0)
+        sx = 1 if x0 < x1 else -1
+        sy = 1 if y0 < y1 else -1
+        err = dx + dy
+        while True:
+            self.rect(x0 - t // 2, y0 - t // 2, t, t, c)
+            if x0 == x1 and y0 == y1:
+                return
+            e2 = 2 * err
+            if e2 >= dy:
+                err += dy
+                x0 += sx
+            if e2 <= dx:
+                err += dx
+                y0 += sy
+
+    def circle(self, cx, cy, r, c):
+        for yy in range(cy - r, cy + r + 1):
+            d = r * r - (yy - cy) ** 2
+            dx = int(d ** 0.5) if d >= 0 else 0
+            self.hline(cx - dx, yy, 2 * dx + 1, c)
+
+    def poly(self, pts, c):
+        if len(pts) < 3:
+            return
+        ys = [p[1] for p in pts]
+        for y in range(min(ys), max(ys) + 1):
+            xs = []
+            n = len(pts)
+            for i in range(n):
+                x1, y1 = pts[i]
+                x2, y2 = pts[(i + 1) % n]
+                if (y1 <= y < y2) or (y2 <= y < y1):
+                    xs.append(int(x1 + (y - y1) * (x2 - x1) / (y2 - y1)))
+            xs.sort()
+            for i in range(0, len(xs) - 1, 2):
+                self.hline(xs[i], y, xs[i + 1] - xs[i] + 1, c)
+
+    # -- text ---------------------------------------------------------
+    def glyph(self, x, y, s, code, c, bold=False):
+        g = FONT.get(code)
+        if g is None:
+            return
+        data = bytes.fromhex(g)
+        dx = max(1, s // 2) if bold else 0
+        for r in range(8):
+            byte = data[r]
+            if not byte:
+                continue
+            for col in range(8):
+                if byte & (1 << col):
+                    self.rect(x + col * s, y + r * s, s, s, c)
+                    if dx:
+                        self.rect(x + col * s + dx, y + r * s, s, s, c)
+
+    def text(self, x, y, s, txt, c, bold=False):
+        cx = x
+        for ch in txt:
+            code = ord(ch)
+            if 32 <= code <= 126:
+                self.glyph(cx, y, s, code, c, bold)
+            cx += 8 * s
+        return cx - x
+
+    def text_w(self, s, txt):
+        return 8 * s * len(txt)
+
+    def wrap(self, txt, s, max_w):
+        lines = []
+        for para in txt.split("\n"):
+            words = para.split(" ")
+            cur = ""
+            for wd in words:
+                trial = wd if not cur else cur + " " + wd
+                if self.text_w(s, trial) <= max_w or not cur:
+                    cur = trial
+                else:
+                    lines.append(cur)
+                    cur = wd
+            if cur or not lines:
+                lines.append(cur)
+        return lines
+
+    def para(self, x, y, s, txt, c, max_w, leading=None, bold=False):
+        if leading is None:
+            leading = 8 * s + 3
+        for ln in self.wrap(txt, s, max_w):
+            self.text(x, y, s, ln, c, bold)
+            y += leading
+        return y
+
+    # -- output -------------------------------------------------------
+    def png(self, path):
+        raw = bytearray()
+        stride = W * 3
+        for yy in range(H):
+            raw.append(0)
+            raw += self.px[yy * stride:(yy + 1) * stride]
+        comp = zlib.compress(bytes(raw), 9)
+
+        def chunk(kind, data):
+            out = struct.pack(">I", len(data)) + kind + data
+            out += struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+            return out
+
+        ihdr = struct.pack(">IIBBBBB", W, H, 8, 2, 0, 0, 0)
+        data = b"\x89PNG\r\n\x1a\n"
+        data += chunk(b"IHDR", ihdr)
+        data += chunk(b"IDAT", comp)
+        data += chunk(b"IEND", b"")
+        with open(path, "wb") as f:
+            f.write(data)
+        return len(data)
+
+
+# --- small drawn scenes ---------------------------------------------
+def scene_skyline(c, x, y, w, h):
+    c.rect(x, y, w, h, SKY)
+    c.circle(x + int(w * 0.78), y + 14, 9, GOLD)
+    tops = [0.45, 0.30, 0.55, 0.22, 0.40, 0.33]
+    bw = w // len(tops)
+    for i, t in enumerate(tops):
+        bh = int(h * t) + 8
+        c.rect(x + i * bw + 2, y + h - bh, bw - 4, bh, NAVY)
+        for wy in range(y + h - bh + 4, y + h - 4, 7):
+            c.rect(x + i * bw + 5, wy, 3, 3, GOLD)
+    c.rect(x + 2 * bw + 6, y + h - int(h * 0.55) - 12, 2, 12, RED)
+    c.poly([(x + 2 * bw + 8, y + h - int(h * 0.55) - 12),
+            (x + 2 * bw + 20, y + h - int(h * 0.55) - 8),
+            (x + 2 * bw + 8, y + h - int(h * 0.55) - 4)], RED)
+
+
+def scene_chart(c, x, y, w, h):
+    c.rect(x, y, w, h, (16, 68, 54))
+    for gy in range(y + 8, y + h - 4, 10):
+        c.hline(x + 4, gy, w - 8, (255, 255, 255), 1)
+    pts = []
+    n = 6
+    for i in range(n):
+        bx = x + 10 + i * ((w - 20) // n)
+        bh = 10 + i * 4
+        by = y + h - 8 - bh
+        col = GREEN if i % 2 == 0 else (214, 48, 49)
+        c.rect(bx, by, 10, bh, col)
+        pts.append((bx + 5, by))
+    for i in range(len(pts) - 1):
+        c.line(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], GOLD, 2)
+
+
+def scene_sunset(c, x, y, w, h):
+    c.rect(x, y, w, h, (58, 32, 92))
+    c.circle(x + int(w * 0.5), y + int(h * 0.62), 13, ORANGE)
+    for sx, sy in [(20, 8), (60, 14), (250, 6), (290, 16)]:
+        c.rect(x + sx, y + sy, 2, 2, WHITE)
+    for i, bh in enumerate([16, 26, 12, 30, 18]):
+        bw = w // 5
+        c.rect(x + i * bw + 1, y + h - bh, bw - 2, bh, (24, 16, 44))
+
+
+def band(c, x, y, w, h, bg, kind):
+    c.rect(x, y, w, h, bg)
+    cx, cy = x + w // 2, y + h // 2
+    if kind == "sun":
+        c.circle(cx, cy, 8, GOLD)
+        for dx, dy in [(-14, 0), (14, 0), (0, -12), (0, 12)]:
+            c.line(cx + dx, cy + dy, cx + dx * 2, cy + dy * 2, GOLD, 2)
+    elif kind == "wave":
+        for k, yy in enumerate([cy - 4, cy + 4]):
+            pts = [(x + 6 + i * 14, yy + (4 if i % 2 else -4))
+                   for i in range((w - 12) // 14 + 1)]
+            for i in range(len(pts) - 1):
+                c.line(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1],
+                       WHITE, 2)
+    elif kind == "flag":
+        c.rect(cx - 2, y + 4, 3, h - 8, WHITE)
+        c.poly([(cx + 1, y + 5), (cx + 26, y + 10), (cx + 1, y + 15)], RED)
+    elif kind == "ship":
+        c.poly([(cx - 26, cy + 2), (cx + 26, cy + 2), (cx + 18, cy + 10),
+                (cx - 18, cy + 10)], INK)
+        c.rect(cx - 6, cy - 8, 8, 10, INK)
+    elif kind == "frame":
+        c.frame(cx - 22, cy - 10, 44, 20, GOLD, 2)
+        c.circle(cx - 8, cy - 3, 4, ORANGE)
+        c.hline(cx - 16, cy + 5, 32, TEAL, 2)
+    elif kind == "bars":
+        for i, bh in enumerate([10, 18, 8, 22, 14]):
+            c.rect(cx - 26 + i * 11, cy + 12 - bh, 7, bh, WHITE)
+    elif kind == "note":
+        c.circle(cx - 8, cy + 4, 5, WHITE)
+        c.rect(cx - 3, cy - 10, 3, 14, WHITE)
+        c.poly([(cx, cy - 10), (cx + 12, cy - 6), (cx, cy - 2)], WHITE)
+    elif kind == "peak":
+        c.poly([(cx - 28, cy + 10), (cx - 8, cy - 10), (cx + 6, cy + 10)],
+               WHITE)
+        c.poly([(cx - 2, cy + 10), (cx + 14, cy - 4), (cx + 28, cy + 10)],
+               (200, 200, 200))
+    elif kind == "court":
+        c.poly([(cx - 24, cy - 8), (cx, cy - 14), (cx + 24, cy - 8)], WHITE)
+        for dx in (-18, 0, 18):
+            c.rect(cx + dx - 2, cy - 8, 4, 18, WHITE)
+        c.rect(cx - 26, cy + 10, 52, 3, WHITE)
+    elif kind == "bolt":
+        c.poly([(cx + 2, cy - 12), (cx - 8, cy + 2), (cx - 1, cy + 2),
+                (cx - 3, cy + 12), (cx + 8, cy - 2), (cx + 1, cy - 2)],
+               GOLD)
+
+
+# --- stories ---------------------------------------------------------
+# (number, place, topic, headline, summary, scene kind, scene bg)
+TOP3 = [
+    (1, "SHENZHEN", "SUMMIT",
+     "Trump, Xi and Putin hold first three-way summit",
+     "The three nuclear powers meet at APEC in Shenzhen; arms control "
+     "and the Iran war top the agenda.",
+     "skyline"),
+    (2, "MIAMI", "GAMES",
+     "GTA VI arrives after a 13-year wait",
+     "Rockstar's sequel launches worldwide; Miami turns into Vice City "
+     "for a festival as critics call it a masterpiece.",
+     "sunset"),
+    (3, "NASDAQ", "MARKETS",
+     "Anthropic debuts in the biggest IPO on record",
+     "The Claude maker lists on Nasdaq as ANT, the first big AI lab to "
+     "go public; shares price above range.",
+     "chart"),
+]
+
+SMALL9 = [
+    (4, "THE HAGUE", "LAW",
+     "World Court rules on Rohingya case",
+     "The ICJ rules in Gambia's case over the 2017 campaign; 730,000 fled.",
+     "court", NAVY),
+    (5, "ANTALYA", "CLIMATE",
+     "COP31 enters its final 48 hours",
+     "Ministers take over the text; the $120bn adaptation fund is still open.",
+     "sun", (176, 124, 18)),
+    (6, "ODISHA", "STORM",
+     "Akvan bears down as 100,000 flee",
+     "Red alerts in 11 districts as the cyclone nears landfall near Gopalpur.",
+     "wave", TEAL),
+    (7, "BERLIN", "DIPLOMACY",
+     "Allies rally behind Kyiv in Berlin",
+     "Merz hosts the Coalition of the Willing as Europe fears a Shenzhen deal.",
+     "flag", NAVY),
+    (8, "GAZA", "WAR",
+     "Israeli tanks cross the Yellow Line",
+     "A rare ground raid in central Gaza raises fears for the fragile truce.",
+     "bars", (120, 60, 40)),
+    (9, "GULF", "WAR",
+     "Iran hits back across the Gulf",
+     "Tehran strikes Gulf states after US raids on Qeshm island; oil spikes.",
+     "ship", (30, 70, 90)),
+    (10, "NEW YORK", "ART",
+     "Van Gogh sells for a record $190.4m",
+     "The painting sets a new auction high for the artist after a Nazi-era row.",
+     "frame", (60, 40, 80)),
+    (11, "LONDON", "WAR",
+     "UK sends Ukraine 1,000 drones",
+     "Britain will provide 1,000 long-range strike drones, the BBC reports.",
+     "bolt", (90, 90, 90)),
+    (12, "LAGOS", "MUSIC",
+     "Fela Kuti enters the Rock Hall",
+     "The Afrobeat legend is the first Africa-born musician inducted.",
+     "note", (120, 40, 90)),
+]
+
+BRIEFS = [
+    "13 CRIMEA - Bridge hit third time.",
+    "14 NUCLEAR - IAEA: North Korea expanded enrichment.",
+    "15 GAZA - Flooding swamps tent camps as rains hit.",
+    "16 HEALTH - US loses measles elimination status.",
+    "17 POLITICS - Peltola win gives Democrats 56 seats.",
+    "18 POLITICS - House forces vote on Epstein files.",
+    "19 TECH - Nvidia chief Huang exits amid probe.",
+    "20 LAW - Indonesia passes asset forfeiture law.",
+    "21 TECH - North Korea unveils first AI chatbot.",
+    "22 ECONOMY - Egypt lands $2.3B IMF deal.",
+    "23 SPORT - India reduce NZ to 60/4 on day one.",
+    "24 SPORT - England beat Australia by 97 runs.",
+    "25 SPORT - Alcaraz, Zverev reach ATP Finals semis.",
+    "26 SPORT - Chelsea top Women's Champions League.",
+    "27 SANCTIONS - EU extends Russia sanctions 3 years.",
+    "28 DIPLOMACY - Abu Dhabi peace talks end deadlocked.",
+    "29 MARKETS - LatAm rattled; Peru fuel emergency.",
+    "30 SCIENCE - Message sent through wall using gravity.",
+]
+
+STATS = [
+    ("EUROPE", "7", "1,000", "UK strike drones for Ukraine", (30, 90, 160)),
+    ("AMERICAS", "8", "$190.4m", "Van Gogh record sale", (20, 110, 60)),
+    ("ASIA-PACIFIC", "5", "100,000", "evacuated ahead of Akvan", RED),
+    ("MIDEAST", "5", "730,000", "Rohingya who fled in 2017", (160, 90, 20)),
+    ("AFRICA", "2", "$2.3bn", "Egypt IMF deal", (176, 124, 18)),
+    ("OCEANIA", "2", "97 runs", "England's ODI win margin", TEAL),
+    ("WORLD", "1", "1st", "gravity message sent", GREY),
+]
+
+# (lon, lat) of the 12 featured stories, for the map dots.
+DOTS = [
+    (114.1, 22.5), (-80.2, 25.8), (-74.0, 40.7), (4.3, 52.1),
+    (30.7, 36.9), (84.9, 19.3), (13.4, 52.5), (34.5, 31.5),
+    (56.3, 26.6), (-74.0, 40.7), (-0.1, 51.5), (3.4, 6.5),
+]
+
+DATECHECK = ("DATE CHECK - First reported Wed 18 Nov, not today's news: "
+             "EU's 45bn euro Ukraine loan - Jeffries nominated - "
+             "Voyager 1 crosses one light-day - Pew: Islam largest by 2035.")
+
+FOOTER = ("Every story here happened, or was first reported, on Thursday "
+          "19 November 2026. Sources: Reuters, AP, AFP, BBC.")
+
+
+def draw_map(c, x, y):
+    c.rect(x, y, 460, 168, NAVY)
+    cell = 4
+    ox, oy = x + 70, y + 4
+    for r in range(40):
+        row = MAP[r]
+        for col in range(80):
+            nib = int(row[col // 4], 16)
+            if (nib >> (col % 4)) & 1:
+                c.rect(ox + col * cell + 1, oy + r * cell + 1, 2, 2, SAND)
+    for i, (lon, lat) in enumerate(DOTS, 1):
+        px = ox + int((lon + 180) / 360 * 80 * cell)
+        py = oy + int((90 - lat) / 180 * 40 * cell)
+        if i == 3:
+            px -= 10
+            py -= 4
+        if i == 10:
+            px += 8
+        c.circle(px, py, 9, RED)
+        num = str(i)
+        nx = px - (4 if len(num) == 1 else 8)
+        c.text(nx, py - 4, 1, num, WHITE, bold=True)
+
+
+def build():
+    c = Canvas()
+    # masthead
+    c.hline(24, 10, 976, RED, 3)
+    t = "THE WORLD IN ONE DAY"
+    c.text((W - c.text_w(2, t)) // 2, 20, 2, t, RED, bold=True)
+    r = "ONE PAGE - 30 STORIES"
+    c.text(W - 24 - c.text_w(1, r), 22, 1, r, GREY)
+    title = "Thursday 19 November 2026"
+    c.text((W - c.text_w(4, title)) // 2, 42, 4, title, INK, bold=True)
+    sub = "Shenzhen summit - Myanmar verdict - Biggest IPO on record"
+    c.text((W - c.text_w(2, sub)) // 2, 80, 2, sub, RED)
+    c.hline(24, 100, 976, INK, 2)
+    # stat bar
+    colw = 976 // 7
+    for i, (name, cnt, big, cap, col) in enumerate(STATS):
+        cx = 24 + i * colw
+        label = name + " " + cnt
+        c.text(cx + (colw - c.text_w(1, label)) // 2, 108, 1, label, col,
+               bold=True)
+        c.text(cx + (colw - c.text_w(2, big)) // 2, 122, 2, big, INK,
+               bold=True)
+        c.para(cx + 6, 146, 1, cap, GREY, colw - 12, leading=10)
+        if i:
+            c.vline(cx, 108, 58, (210, 205, 190), 1)
+    c.hline(24, 178, 976, INK, 1)
+    # top 3 stories
+    scenes = {"skyline": scene_skyline, "chart": scene_chart,
+              "sunset": scene_sunset}
+    for i, (num, place, topic, head, summ, kind) in enumerate(TOP3):
+        x = 24 + i * (314 + 17)
+        y = 188
+        scenes[kind](c, x, y, 314, 48)
+        kick = "%d - %s - %s" % (num, place, topic)
+        c.text(x, y + 56, 1, kick, RED, bold=True)
+        y2 = c.para(x, y + 70, 2, head, INK, 314, leading=19, bold=True)
+        c.para(x, y2 + 4, 1, summ, INK, 314, leading=11)
+    c.hline(24, 372, 976, INK, 1)
+    # 9 small stories, 3 rows
+    for r in range(3):
+        for k in range(3):
+            idx = r * 3 + k
+            num, place, topic, head, summ, kind, bg = SMALL9[idx]
+            x = 24 + k * (314 + 17)
+            y = 382 + r * 116
+            band(c, x, y, 314, 30, bg, kind)
+            kick = "%d - %s - %s" % (num, place, topic)
+            c.text(x, y + 36, 1, kick, RED, bold=True)
+            y2 = c.para(x, y + 49, 2, head, INK, 314, leading=19, bold=True)
+            c.para(x, y2 + 3, 1, summ, INK, 314, leading=11)
+    # map + briefs
+    my = 736
+    c.text(24, my, 1, "WHERE IT HAPPENED", RED, bold=True)
+    draw_map(c, 24, my + 14)
+    c.text(24, my + 188, 1, "Red numbers mark stories 1-12.", GREY)
+    bx = 510
+    c.text(bx, my, 1, "ALSO ON THURSDAY 19 NOVEMBER - 18 MORE STORIES", RED,
+           bold=True)
+    for i, b in enumerate(BRIEFS):
+        col = i // 9
+        row = i % 9
+        x = bx + col * 245
+        y = my + 16 + row * 22
+        c.para(x, y, 1, b, INK, 240, leading=10)
+    # date check
+    dy = 958
+    c.frame(24, dy, 976, 44, RED, 2)
+    c.para(34, dy + 7, 1, DATECHECK, RED, 956, leading=11)
+    # footer
+    c.text(24, 1008, 1, FOOTER, GREY)
+    return c
+
+
+def main():
+    os.makedirs("/output", exist_ok=True)
+    dst = "/output/entry.png"
+    n = build().png(dst)
+    print("Wrote %s (%d bytes)" % (dst, n))
+
+
+if __name__ == "__main__":
+    main()
